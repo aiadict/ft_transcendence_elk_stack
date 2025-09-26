@@ -1,0 +1,13 @@
+# logstash/logstash.yml
+# No functional changes required — your file already configures monitoring over HTTPS.
+
+# Reduce chatter
+log.level: info
+
+# X-Pack monitoring to Elasticsearch over HTTPS with our CA + user
+# (kept as-is; this is correct for TLS-secured monitoring)  :contentReference[oaicite:1]{index=1}
+xpack.monitoring.enabled: true
+xpack.monitoring.elasticsearch.hosts: ["https://elasticsearch:9200"]
+xpack.monitoring.elasticsearch.username: "logstash_system"
+xpack.monitoring.elasticsearch.password: "${LOGSTASH_SYSTEM_PASSWORD}"
+xpack.monitoring.elasticsearch.ssl.certificate_authority: /usr/share/logstash/certs/ca/ca.crt

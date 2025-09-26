@@ -1,0 +1,100 @@
+version with aliases - and dashboards
+
+
+To run it on ubuntu I had to change:
+Here’s a **concise summary** of the changes made to make your `es-setup.sh` script work on **Ubuntu**:
+
+---
+
+### ✅ 1. **Changed Shebang:**
+
+**From:** `#!/bin/sh` (runs `dash` on Ubuntu)
+**To:** `#!/bin/sh` (kept same) — but rewrote script to be POSIX-compliant.
+
+**Why:** Ubuntu's `/bin/sh` is `dash`, which doesn't support Bash syntax (`[[ ]]`, `pipefail`, arrays, etc.).
+
+---
+
+### ✅ 2. **Removed Bash-Specific Syntax:**
+
+* Replaced `[[ ... ]]` with `[ ... ]`
+* Removed `set -o pipefail`
+* Avoided arrays (`local foo=(...)`)
+* Used portable string handling (`printf`, `sed`, etc.)
+
+**Why:** `dash` does not support these features.
+
+---
+
+### ✅ 3. **Removed `docker run` usage inside the script**
+
+**Before:** The script ran `docker run ... curl` to talk to Elasticsearch.
+**After:** Uses the `curl` command directly inside the container (which already has network + certs access).
+
+**Why:** Inside the `setup` container, Docker is not available. Using `docker run` causes `command not found` or `permission denied`.
+
+---
+
+### ✅ 4. **Used `--data-binary @-` with heredocs for JSON bodies**
+
+Replaced `-d "{...}"` with:
+
+```sh
+curl ... --data-binary @- <<'EOF'
+{ "json": "body" }
+EOF
+```
+
+**Why:**
+
+* Supports multi-line, complex payloads
+* Avoids JSON escape issues
+* More readable and maintainable
+
+---
+
+### ✅ 5. **Implemented a `json_escape()` function**
+
+Escapes special characters (`"`, `\`, newline, tab) in passwords and user input.
+
+**Why:** Prevents malformed JSON when passwords contain quotes, backslashes, etc.
+
+---
+
+### ✅ 6. **Ensured environment variables are available inside the container**
+
+Used `${VAR:?}` to explicitly fail if required vars like `$ELASTIC_PASSWORD` are missing.
+
+**Why:** Prevents silent failures when critical config is missing.
+
+---
+
+### ✅ 7. **Used consistent, POSIX-compatible `curl` wrapper**
+
+All `curl` calls:
+
+* Use `--cacert /certs/ca/ca.crt`
+* Use `-u elastic:$ELASTIC_PASSWORD`
+* Use consistent headers and flags
+
+**Why:** Avoids duplication and ensures secure, correct requests.
+
+---
+
+### ✅ 8. **Preserved all your business logic**
+
+* Role creation
+* User creation
+* ILM policy
+* Index template
+* Bootstrap write index
+* Snapshot repo + SLM
+* Single-node index replica tuning
+
+**Why:** Full feature parity with your macOS script, but now portable and reliable.
+
+---
+
+✅ **Result:**
+Script now runs **successfully on both macOS and Ubuntu**, inside your `curlimages/curl` container via `docker-compose`.
+

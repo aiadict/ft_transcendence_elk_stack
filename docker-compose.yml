@@ -1,0 +1,158 @@
+# docker-compose.yml  (only the relevant diffs shown; full file kept as-is)  :contentReference[oaicite:4]{index=4}
+name: ${STACK_NAME:-elk-module}
+
+volumes:
+  esdata:
+  essnapshots:
+  lsdata:
+  applogs:
+  certs:
+
+services:
+  certs:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.9.0
+    container_name: elk-certs
+    user: "0:0"
+    entrypoint: ["/bin/sh","-lc"]
+    command: "/scripts/gen-certs.sh"
+    volumes:
+      - certs:/certs
+      - ./scripts:/scripts:ro
+    restart: "no"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.9.0
+    container_name: elk-elasticsearch
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+      snap-perms:
+        condition: service_completed_successfully
+    environment:
+      node.name: "es01"
+      cluster.name: "elk-cluster"
+      discovery.type: "single-node"
+      ELASTIC_PASSWORD: "${ELASTIC_PASSWORD}"
+      ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+      bootstrap.memory_lock: "true"
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "true"
+      xpack.security.http.ssl.certificate: "/usr/share/elasticsearch/config/certs/elasticsearch/elasticsearch.crt"
+      xpack.security.http.ssl.key:         "/usr/share/elasticsearch/config/certs/elasticsearch/elasticsearch.key"
+      xpack.security.http.ssl.certificate_authorities: "/usr/share/elasticsearch/config/certs/ca/ca.crt"
+      xpack.security.transport.ssl.enabled: "true"
+      xpack.security.transport.ssl.certificate: "/usr/share/elasticsearch/config/certs/elasticsearch/elasticsearch.crt"
+      xpack.security.transport.ssl.key: "/usr/share/elasticsearch/config/certs/elasticsearch/elasticsearch.key"
+      xpack.security.transport.ssl.certificate_authorities: "/usr/share/elasticsearch/config/certs/ca/ca.crt"
+      xpack.security.transport.ssl.verification_mode: "certificate"
+      path.repo: "/snapshots"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+      - essnapshots:/snapshots
+      - certs:/usr/share/elasticsearch/config/certs:ro
+    restart: unless-stopped
+
+  setup:
+    image: curlimages/curl:8.10.1
+    container_name: elk-setup
+    environment:
+      ELASTIC_PASSWORD: "${ELASTIC_PASSWORD}"
+      KIBANA_SYSTEM_PASSWORD: "${KIBANA_SYSTEM_PASSWORD}"
+      LS_ES_USER: "${LS_ES_USER}"
+      LS_ES_PASS: "${LS_ES_PASS}"
+      LOGSTASH_SYSTEM_PASSWORD: "${LOGSTASH_SYSTEM_PASSWORD}"
+    command: ["/bin/sh","-lc","sh -x /scripts/es-setup.sh"]
+    volumes:
+      - ./scripts:/scripts:ro
+      - certs:/certs:ro
+    restart: "no"
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.9.0
+    container_name: elk-logstash
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      LS_JAVA_OPTS: "-Xms256m -Xmx256m"
+      LS_ES_USER: "${LS_ES_USER}"
+      LS_ES_PASS: "${LS_ES_PASS}"
+      LOGSTASH_SYSTEM_PASSWORD: "${LOGSTASH_SYSTEM_PASSWORD:?set in .env}"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro  # unchanged  :contentReference[oaicite:5]{index=5}
+      - applogs:/logs
+      - lsdata:/usr/share/logstash/data
+      - certs:/usr/share/logstash/certs:ro
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.9.0
+    container_name: elk-kibana
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      ELASTICSEARCH_HOSTS: "https://elasticsearch:9200"
+      ELASTICSEARCH_USERNAME: "kibana_system"
+      ELASTICSEARCH_PASSWORD: "${KIBANA_SYSTEM_PASSWORD}"
+      ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES: "/usr/share/kibana/config/certs/ca/ca.crt"
+      SERVER_SSL_ENABLED: "true"
+      SERVER_SSL_CERTIFICATE: "/usr/share/kibana/config/certs/kibana/kibana.crt"
+      SERVER_SSL_KEY:         "/usr/share/kibana/config/certs/kibana/kibana.key"
+      XPACK_SECURITY_ENCRYPTIONKEY: "${KIBANA_SECURITY_ENCRYPTION_KEY}"
+      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: "${KIBANA_SAVEDOBJECTS_ENCRYPTION_KEY}"
+      XPACK_REPORTING_ENCRYPTIONKEY: "${KIBANA_REPORTING_ENCRYPTION_KEY}"
+      NODE_OPTIONS: "--use-openssl-ca"
+      NODE_EXTRA_CA_CERTS: "/usr/share/kibana/config/certs/ca/ca.crt"
+    volumes:
+      - certs:/usr/share/kibana/config/certs:ro
+    ports:
+      - "5601:5601"
+    restart: unless-stopped
+
+  loggen-json:
+    image: python:3.11-alpine
+    container_name: elk-loggen-json
+    depends_on: [logstash]
+    volumes:
+      - applogs:/logs
+      - ./scripts:/scripts:ro
+    # Optionally pin the output location without changing Logstash config:
+    # environment:
+    #   LOG_FILE: "/logs/ft_transcendence.jsonl"
+    command: ["sh","-lc","python3 /scripts/loggen-json.py"]
+    restart: unless-stopped
+
+  # Keep the service name to avoid ripple changes, but make it a no-op
+  # loggen-text:
+  #   image: alpine:3.20
+  #   container_name: elk-loggen-text
+  #   depends_on: [logstash]
+  #   command: ["sh","-lc","echo 'plain-text generator disabled'; exit 0"]
+  #   restart: "no"
+
+  snap-perms:
+    image: alpine:3.20
+    container_name: elk-snap-perms
+    user: "0:0"
+    command: ["sh","-lc","set -eux; install -d -o 1000 -g 0 -m 0775 /snapshots"]
+    volumes:
+      - essnapshots:/snapshots
+    restart: "no"
+
+  kbn-setup:
+    image: curlimages/curl:8.10.1
+    container_name: elk-kbn-setup
+    environment:
+      ELASTIC_PASSWORD: "${ELASTIC_PASSWORD}"
+    entrypoint: ["/bin/sh","-lc","sh -x /scripts/kibana-setup.sh"]
+    volumes:
+      - ./scripts:/scripts:ro
+      - certs:/certs:ro
+    depends_on:
+      kibana:
+        condition: service_started
+    restart: "no"
