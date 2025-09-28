@@ -1,0 +1,9 @@
+# Dockerfile.logstash
+FROM docker.elastic.co/logstash/logstash:8.9.0
+USER root
+# Copy custom pipeline and config
+COPY logstash/pipeline/logstash.conf /usr/share/logstash/pipeline/logstash.conf
+COPY logstash/logstash.yml /usr/share/logstash/config/logstash.yml
+# Ensure ownership for logstash user (uid 1000)
+RUN chown logstash:logstash /usr/share/logstash/pipeline/logstash.conf \
+ && chown logstash:logstash /usr/share/logstash/config/logstash.yml

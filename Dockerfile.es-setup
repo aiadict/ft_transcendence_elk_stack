@@ -1,0 +1,6 @@
+# Dockerfile.es-setup
+FROM curlimages/curl:8.10.1
+USER root
+WORKDIR /scripts
+COPY scripts/es-setup.sh .
+RUN chmod +x es-setup.sh

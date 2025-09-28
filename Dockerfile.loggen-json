@@ -1,0 +1,6 @@
+# Dockerfile.loggen-json
+FROM python:3.11-alpine
+WORKDIR /scripts
+COPY scripts/loggen-json.py .
+RUN chmod +x loggen-json.py
+ENTRYPOINT ["python3", "./loggen-json.py"]

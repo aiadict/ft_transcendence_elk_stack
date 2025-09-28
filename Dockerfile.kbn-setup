@@ -1,0 +1,6 @@
+# Dockerfile.kbn-setup
+FROM curlimages/curl:8.10.1
+USER root
+WORKDIR /scripts
+COPY scripts/kibana-setup.sh .
+RUN chmod +x kibana-setup.sh

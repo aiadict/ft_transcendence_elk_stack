@@ -1,4 +1,7 @@
-# docker-compose.yml  (only the relevant diffs shown; full file kept as-is)  :contentReference[oaicite:4]{index=4}
+# docker compose up --build 2>&1 | tee docker-build.log
+
+
+
 name: ${STACK_NAME:-elk-module}
 
 volumes:
@@ -10,14 +13,15 @@ volumes:
 
 services:
   certs:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.9.0
+    build:
+      context: .
+      dockerfile: Dockerfile.certs
     container_name: elk-certs
     user: "0:0"
-    entrypoint: ["/bin/sh","-lc"]
+    entrypoint: ["/bin/sh", "-lc"]
     command: "/scripts/gen-certs.sh"
     volumes:
       - certs:/certs
-      - ./scripts:/scripts:ro
     restart: "no"
 
   elasticsearch:
@@ -38,7 +42,7 @@ services:
       xpack.security.enabled: "true"
       xpack.security.http.ssl.enabled: "true"
       xpack.security.http.ssl.certificate: "/usr/share/elasticsearch/config/certs/elasticsearch/elasticsearch.crt"
-      xpack.security.http.ssl.key:         "/usr/share/elasticsearch/config/certs/elasticsearch/elasticsearch.key"
+      xpack.security.http.ssl.key: "/usr/share/elasticsearch/config/certs/elasticsearch/elasticsearch.key"
       xpack.security.http.ssl.certificate_authorities: "/usr/share/elasticsearch/config/certs/ca/ca.crt"
       xpack.security.transport.ssl.enabled: "true"
       xpack.security.transport.ssl.certificate: "/usr/share/elasticsearch/config/certs/elasticsearch/elasticsearch.crt"
@@ -55,7 +59,9 @@ services:
     restart: unless-stopped
 
   setup:
-    image: curlimages/curl:8.10.1
+    build:
+      context: .
+      dockerfile: Dockerfile.es-setup
     container_name: elk-setup
     environment:
       ELASTIC_PASSWORD: "${ELASTIC_PASSWORD}"
@@ -65,12 +71,13 @@ services:
       LOGSTASH_SYSTEM_PASSWORD: "${LOGSTASH_SYSTEM_PASSWORD}"
     command: ["/bin/sh","-lc","sh -x /scripts/es-setup.sh"]
     volumes:
-      - ./scripts:/scripts:ro
       - certs:/certs:ro
     restart: "no"
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:8.9.0
+    build:
+      context: .
+      dockerfile: Dockerfile.logstash
     container_name: elk-logstash
     depends_on:
       setup:
@@ -81,8 +88,6 @@ services:
       LS_ES_PASS: "${LS_ES_PASS}"
       LOGSTASH_SYSTEM_PASSWORD: "${LOGSTASH_SYSTEM_PASSWORD:?set in .env}"
     volumes:
-      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
-      - ./logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro  # unchanged  :contentReference[oaicite:5]{index=5}
       - applogs:/logs
       - lsdata:/usr/share/logstash/data
       - certs:/usr/share/logstash/certs:ro
@@ -101,7 +106,7 @@ services:
       ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES: "/usr/share/kibana/config/certs/ca/ca.crt"
       SERVER_SSL_ENABLED: "true"
       SERVER_SSL_CERTIFICATE: "/usr/share/kibana/config/certs/kibana/kibana.crt"
-      SERVER_SSL_KEY:         "/usr/share/kibana/config/certs/kibana/kibana.key"
+      SERVER_SSL_KEY: "/usr/share/kibana/config/certs/kibana/kibana.key"
       XPACK_SECURITY_ENCRYPTIONKEY: "${KIBANA_SECURITY_ENCRYPTION_KEY}"
       XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: "${KIBANA_SAVEDOBJECTS_ENCRYPTION_KEY}"
       XPACK_REPORTING_ENCRYPTIONKEY: "${KIBANA_REPORTING_ENCRYPTION_KEY}"
@@ -114,25 +119,15 @@ services:
     restart: unless-stopped
 
   loggen-json:
-    image: python:3.11-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.loggen-json
     container_name: elk-loggen-json
-    depends_on: [logstash]
+    depends_on:
+      - logstash
     volumes:
       - applogs:/logs
-      - ./scripts:/scripts:ro
-    # Optionally pin the output location without changing Logstash config:
-    # environment:
-    #   LOG_FILE: "/logs/ft_transcendence.jsonl"
-    command: ["sh","-lc","python3 /scripts/loggen-json.py"]
     restart: unless-stopped
-
-  # Keep the service name to avoid ripple changes, but make it a no-op
-  # loggen-text:
-  #   image: alpine:3.20
-  #   container_name: elk-loggen-text
-  #   depends_on: [logstash]
-  #   command: ["sh","-lc","echo 'plain-text generator disabled'; exit 0"]
-  #   restart: "no"
 
   snap-perms:
     image: alpine:3.20
@@ -144,13 +139,14 @@ services:
     restart: "no"
 
   kbn-setup:
-    image: curlimages/curl:8.10.1
+    build:
+      context: .
+      dockerfile: Dockerfile.kbn-setup
     container_name: elk-kbn-setup
     environment:
       ELASTIC_PASSWORD: "${ELASTIC_PASSWORD}"
     entrypoint: ["/bin/sh","-lc","sh -x /scripts/kibana-setup.sh"]
     volumes:
-      - ./scripts:/scripts:ro
       - certs:/certs:ro
     depends_on:
       kibana:

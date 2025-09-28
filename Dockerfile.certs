@@ -1,0 +1,6 @@
+# Dockerfile.certs
+FROM docker.elastic.co/elasticsearch/elasticsearch:8.9.0
+USER root
+WORKDIR /scripts
+COPY scripts/gen-certs.sh .
+RUN chmod +x gen-certs.sh
